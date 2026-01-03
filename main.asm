@@ -1,0 +1,358 @@
+.386
+.model flat, stdcall
+option casemap :none
+
+; Подключаем библиотеки
+include \masm32\include\windows.inc
+include \masm32\include\user32.inc
+include \masm32\include\kernel32.inc
+include \masm32\include\gdi32.inc
+include \masm32\include\masm32.inc
+
+includelib \masm32\lib\user32.lib
+includelib \masm32\lib\kernel32.lib
+includelib \masm32\lib\gdi32.lib
+includelib \masm32\lib\masm32.lib
+
+; Константы для анимации
+ID_TIMER_ANIMATION equ 1
+ANIMATION_INTERVAL equ 100  ; Интервал анимации (мс)
+MAX_MELT_STAGE equ 10       ; Максимальная стадия таяния
+
+.data
+ClassName db "GDIAnimationClass",0
+AppName db "Лаб. работа №3: Тающий снеговик",0
+hInstance dd 0
+hWnd dd 0
+
+; Имена шрифтов
+FontName1 db "Times New Roman",0
+FontName2 db "Courier New",0
+
+; Тексты для разных шрифтов
+Text1 db "Анимация: Тающий снеговик",0
+Text2 db "Используется два типа шрифтов",0
+Text3 db "GDI функции: Rectangle, Ellipse, Arc",0
+
+; Данные для анимации
+meltStage dd 0      ; Текущая стадия таяния (0-10)
+sunVisible dd 0     ; Видимость солнца (0/1)
+sunPositionX dd 50  ; Позиция солнца
+sunPositionY dd 50
+
+.data?
+hdc dd ?
+ps PAINTSTRUCT <?>
+hFont1 dd ?
+hFont2 dd ?
+hRedPen dd ?
+hBluePen dd ?
+hGreenBrush dd ?
+hYellowBrush dd ?
+
+.code
+start:
+    invoke GetModuleHandle, NULL
+    mov hInstance, eax
+    invoke WinMain, hInstance, NULL, NULL, SW_SHOWDEFAULT
+    invoke ExitProcess, eax
+
+; Точка входа
+WinMain proc hInst:HINSTANCE, hPrevInst:HINSTANCE, CmdLine:LPSTR, CmdShow:DWORD
+    LOCAL wc:WNDCLASSEX
+    LOCAL msg:MSG
+
+    ; Заполняем структуру класса окна
+    mov wc.cbSize, sizeof WNDCLASSEX
+    mov wc.style, CS_HREDRAW or CS_VREDRAW
+    mov wc.lpfnWndProc, offset WndProc
+    mov wc.cbClsExtra, 0
+    wc.cbWndExtra, 0
+    push hInst
+    pop wc.hInstance
+    mov wc.hbrBackground, COLOR_WINDOW+1
+    mov wc.lpszMenuName, NULL
+    mov wc.lpszClassName, offset ClassName
+    invoke LoadIcon, NULL, IDI_APPLICATION
+    mov wc.hIcon, eax
+    mov wc.hIconSm, eax
+    invoke LoadCursor, NULL, IDC_ARROW
+    mov wc.hCursor, eax
+
+    invoke RegisterClassEx, addr wc
+
+    ; Создаём окно
+    invoke CreateWindowEx, WS_EX_CLIENTEDGE, offset ClassName, offset AppName,
+                           WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                           800, 600, NULL, NULL, hInst, NULL
+    mov hWnd, eax
+
+    invoke ShowWindow, hWnd, CmdShow
+    invoke UpdateWindow, hWnd
+
+    ; Цикл сообщений
+    .while TRUE
+        invoke GetMessage, addr msg, NULL, 0, 0
+        .break .if (!eax)
+        invoke TranslateMessage, addr msg
+        invoke DispatchMessage, addr msg
+    .endw
+
+    mov eax, msg.wParam
+    ret
+WinMain endp
+
+; Процедура рисования снеговика
+DrawSnowman proc hdc:HDC, stage:DWORD
+    LOCAL baseX:DWORD
+    LOCAL baseY:DWORD
+    LOCAL sizeFactor:DWORD
+    LOCAL hNewPen:DWORD
+    LOCAL hOldPen:DWORD
+    LOCAL hNewBrush:DWORD
+    LOCAL hOldBrush:DWORD
+    
+    ; Вычисляем позицию снеговика
+    mov baseX, 400
+    mov baseY, 400
+    
+    ; Коэффициент размера в зависимости от стадии таяния
+    mov eax, 100
+    mov ebx, stage
+    imul ebx, 5
+    sub eax, ebx
+    mov sizeFactor, eax
+    
+    ; Создаём белое перо и кисть для снеговика
+    invoke CreatePen, PS_SOLID, 3, 00FFFFFFh  ; Белое перо
+    mov hNewPen, eax
+    invoke SelectObject, hdc, hNewPen
+    mov hOldPen, eax
+    
+    invoke CreateSolidBrush, 00FFFFFFh  ; Белая кисть
+    mov hNewBrush, eax
+    invoke SelectObject, hdc, hNewBrush
+    mov hOldBrush, eax
+    
+    ; Рисуем нижний шар (самый большой)
+    mov eax, baseX
+    sub eax, sizeFactor
+    mov ebx, baseY
+    sub ebx, sizeFactor
+    mov ecx, baseX
+    add ecx, sizeFactor
+    mov edx, baseY
+    add edx, sizeFactor
+    invoke Ellipse, hdc, eax, ebx, ecx, edx
+    
+    ; Рисуем средний шар (меньше)
+    mov eax, sizeFactor
+    mov ebx, 70
+    mul ebx
+    mov ebx, 100
+    div ebx
+    mov ebx, eax  ; ebx = sizeFactor * 70 / 100
+    
+    mov eax, baseX
+    sub eax, ebx
+    mov ecx, baseY
+    sub ecx, ebx
+    sub ecx, sizeFactor  ; Смещаем выше
+    mov edx, baseX
+    add edx, ebx
+    mov ebx, baseY
+    sub ebx, sizeFactor
+    add ebx, ebx  ; ebx = baseY - sizeFactor + ebx
+    invoke Ellipse, hdc, eax, ecx, edx, ebx
+    
+    ; Восстанавливаем старые объекты и удаляем созданные
+    invoke SelectObject, hdc, hOldBrush
+    invoke DeleteObject, hNewBrush
+    invoke SelectObject, hdc, hOldPen
+    invoke DeleteObject, hNewPen
+    
+    ret
+DrawSnowman endp
+
+; Процедура рисования солнца
+DrawSun proc hdc:HDC, x:DWORD, y:DWORD
+    LOCAL hNewPen:DWORD
+    LOCAL hOldPen:DWORD
+    LOCAL hNewBrush:DWORD
+    LOCAL hOldBrush:DWORD
+    invoke CreatePen, PS_SOLID, 2, 0000FFFFh  ; Жёлтое перо
+    mov hNewPen, eax
+    invoke SelectObject, hdc, hNewPen
+    mov hOldPen, eax
+    
+    invoke CreateSolidBrush, 0000FFFFh  ; Жёлтая кисть
+    mov hNewBrush, eax
+    invoke SelectObject, hdc, hNewBrush
+    mov hOldBrush, eax
+    
+    ; Рисуем солнце
+    mov eax, x
+    sub eax, 40
+    mov ebx, y
+    sub ebx, 40
+    mov ecx, x
+    add ecx, 40
+    mov edx, y
+    add edx, 40
+    invoke Ellipse, hdc, eax, ebx, ecx, edx
+    
+    ; Рисуем лучи солнца
+    invoke MoveToEx, hdc, x, y-50, NULL
+    invoke LineTo, hdc, x, y-80
+    
+    invoke MoveToEx, hdc, x, y+50, NULL
+    invoke LineTo, hdc, x, y+80
+    
+    invoke MoveToEx, hdc, x-50, y, NULL
+    invoke LineTo, hdc, x-80, y
+    
+    invoke MoveToEx, hdc, x+50, y, NULL
+    invoke LineTo, hdc, x+80, y
+    
+    ; Восстанавливаем
+    invoke SelectObject, hdc, hOldBrush
+    invoke DeleteObject, hNewBrush
+    invoke SelectObject, hdc, hOldPen
+    invoke DeleteObject, hNewPen
+    
+    ret
+DrawSun endp
+
+; Оконная процедура
+WndProc proc hWnd:HWND, uMsg:UINT, wParam:WPARAM, lParam:LPARAM
+    LOCAL hOldFont:DWORD
+    .if uMsg == WM_CREATE
+        ; Создаём два разных шрифта
+        invoke CreateFont, 24, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                          DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                          CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                          DEFAULT_PITCH or FF_ROMAN, 
+                          addr FontName1
+        mov hFont1, eax
+        
+        invoke CreateFont, 18, 0, 0, 0, FW_NORMAL, TRUE, FALSE, FALSE,
+                          DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                          CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                          DEFAULT_PITCH or FF_MODERN, 
+                          addr FontName2
+        mov hFont2, eax
+        
+        ; Создаём перья разных цветов
+        invoke CreatePen, PS_SOLID, 3, 000000FFh  ; Красное
+        mov hRedPen, eax
+        
+        invoke CreatePen, PS_DASH, 2, 0000FF00h   ; Зелёное пунктирное
+        mov hBluePen, eax
+        
+        ; Создаём кисти
+        invoke CreateSolidBrush, 0000FF00h        ; Зелёная
+        mov hGreenBrush, eax
+        
+        invoke CreateHatchBrush, HS_CROSS, 0000FFFFh ; Жёлтая перекрёстная
+        mov hYellowBrush, eax
+        
+        ; Запускаем таймер для анимации
+        invoke SetTimer, hWnd, ID_TIMER_ANIMATION, ANIMATION_INTERVAL, NULL
+        
+    .elseif uMsg == WM_PAINT
+        invoke BeginPaint, hWnd, addr ps
+        mov hdc, eax
+        
+        ; 1. Вывод текста с использованием двух типов шрифтов
+        ; Используем первый шрифт
+        invoke SelectObject, hdc, hFont1
+        mov hOldFont, eax
+        invoke SetTextColor, hdc, 000000FFh  ; Красный
+        invoke TextOut, hdc, 20, 20, addr Text1, sizeof Text1
+        
+        ; Используем второй шрифт
+        invoke SelectObject, hdc, hFont2
+        invoke SetTextColor, hdc, 00000000h  ; Чёрный
+        invoke TextOut, hdc, 20, 60, addr Text2, sizeof Text2
+        
+        ; 2. Вывод графических примитивов с разными перьями и кистями
+        ; Прямоугольник с красным пером
+        invoke SelectObject, hdc, hRedPen
+        invoke SelectObject, hdc, hGreenBrush
+        invoke Rectangle, hdc, 20, 100, 200, 200
+        
+        ; Эллипс с зелёным пунктирным пером
+        invoke SelectObject, hdc, hBluePen
+        invoke SelectObject, hdc, hYellowBrush
+        invoke Ellipse, hdc, 250, 100, 450, 200
+        
+        ; Дуга
+        invoke Arc, hdc, 500, 100, 700, 200, 700, 150, 500, 150
+        
+        ; Восстанавливаем шрифт
+        invoke SelectObject, hdc, hOldFont
+        
+        ; 3. Вывод мини-мультфильма "Тающий снеговик"
+        ; Рисуем солнце (если оно появилось)
+        .if sunVisible == 1
+            invoke DrawSun, hdc, sunPositionX, sunPositionY
+        .endif
+        
+        ; Рисуем снеговика с текущей стадией таяния
+        invoke DrawSnowman, hdc, meltStage
+        
+        invoke EndPaint, hWnd, addr ps
+        
+    .elseif uMsg == WM_TIMER
+        .if wParam == ID_TIMER_ANIMATION
+            ; Анимация: движение солнца и таяние снеговика
+            .if sunPositionX < 700
+                add sunPositionX, 10
+                .if sunPositionX > 300
+                    mov sunVisible, 1
+                .endif
+            .else
+                ; Когда солнце дошло до конца - начинаем таять
+                .if meltStage < MAX_MELT_STAGE
+                    inc meltStage
+                .endif
+            .endif
+            
+            ; Перерисовываем окно
+            invoke InvalidateRect, hWnd, NULL, TRUE
+        .endif
+        
+    .elseif uMsg == WM_KEYDOWN
+        ; Управление анимацией с клавиатуры
+        .if wParam == VK_SPACE
+            ; Сброс анимации
+            mov meltStage, 0
+            mov sunPositionX, 50
+            mov sunVisible, 0
+            invoke InvalidateRect, hWnd, NULL, TRUE
+        .endif
+        
+    .elseif uMsg == WM_DESTROY
+        ; Останавливаем таймер
+        invoke KillTimer, hWnd, ID_TIMER_ANIMATION
+        
+        ; Удаляем созданные объекты GDI
+        invoke DeleteObject, hFont1
+        invoke DeleteObject, hFont2
+        invoke DeleteObject, hRedPen
+        invoke DeleteObject, hBluePen
+        invoke DeleteObject, hGreenBrush
+        invoke DeleteObject, hYellowBrush
+        
+        invoke PostQuitMessage, 0
+        
+    .else
+        invoke DefWindowProc, hWnd, uMsg, wParam, lParam
+        ret
+    .endif
+    
+    xor eax, eax
+    ret
+WndProc endp
+
+end start

@@ -1,0 +1,49 @@
+name: Build MASM32 (Wine)
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Wine and tools
+        run: |
+          sudo dpkg --add-architecture i386 || true
+          sudo apt-get update -y
+          sudo apt-get install -y wine64 wine32 p7zip-full unzip wget cabextract || true
+
+      - name: Prepare Wine prefix and download MASM32
+        run: |
+          export WINEPREFIX="$HOME/.wine_masm32"
+          export WINEARCH=win32
+          wineboot -u || true
+          mkdir -p "$HOME/masm32_setup"
+          cd "$HOME/masm32_setup"
+          wget -q -O masm32.zip https://masm32.com/masmdl/masm32v11r.zip
+          7z x masm32.zip -o"$WINEPREFIX/drive_c/" || unzip -o masm32.zip -d "$WINEPREFIX/drive_c/"
+
+      - name: Copy source and build script into MASM32 folder
+        run: |
+          export WINEPREFIX="$HOME/.wine_masm32"
+          mkdir -p "$WINEPREFIX/drive_c/masm32"
+          cp -v main.asm "$WINEPREFIX/drive_c/masm32/" || true
+          cp -v build.bat "$WINEPREFIX/drive_c/masm32/" || true
+
+      - name: Run build under Wine
+        run: |
+          export WINEPREFIX="$HOME/.wine_masm32"
+          cd "$WINEPREFIX/drive_c/masm32"
+          wine cmd /c build.bat
+
+      - name: Upload main.exe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-exe
+          path: ${{ github.workspace }}/build_output/main.exe
