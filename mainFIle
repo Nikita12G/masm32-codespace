@@ -1,3 +1,8 @@
+; =======================
+;  MASM32
+;  Тающий снеговик + солнце
+; =======================
+
 .386
 .model flat, stdcall
 option casemap:none
@@ -13,159 +18,160 @@ includelib \masm32\lib\gdi32.lib
 
 WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
 
-ID_TIMER equ 1
+IDT_TIMER equ 1
 
 .data
 ClassName db "SnowmanClass",0
 AppName   db "Тающий снеговик",0
+Text1     db "Taющий снеговик",0
 
-Text1 db "Анимация: Тающий снеговик",0
-Font1Name db "Times New Roman",0
+hInstance dd 0
+hWndMain  dd 0
 
-hInstance dd ?
-hWnd dd ?
-
-meltStage dd 0
-sunX dd 50
-sunVisible dd 0
+sunX      dd 50
+sunShow   dd 0
+melt      dd 0
 
 .data?
 ps PAINTSTRUCT <>
-hFont1 dd ?
+hFont dd ?
 
 .code
 
 start:
-    invoke GetModuleHandle,NULL
-    mov hInstance,eax
-    invoke WinMain,hInstance,NULL,NULL,SW_SHOWDEFAULT
-    invoke ExitProcess,eax
+    invoke GetModuleHandle, NULL
+    mov hInstance, eax
+    invoke WinMain, hInstance, NULL, NULL, SW_SHOWDEFAULT
+    invoke ExitProcess, eax
 
-WinMain proc hInst:DWORD,hPrev:DWORD,Cmd:DWORD,Show:DWORD
+; =======================
+WinMain proc hInst:DWORD, hPrev:DWORD, Cmd:DWORD, Show:DWORD
     LOCAL wc:WNDCLASSEX
     LOCAL msg:MSG
 
-    mov wc.cbSize,SIZEOF WNDCLASSEX
-    mov wc.style,CS_HREDRAW or CS_VREDRAW
-    mov wc.lpfnWndProc,OFFSET WndProc
-    mov wc.cbClsExtra,0
-    mov wc.cbWndExtra,0
-    mov wc.hInstance,hInst
-    mov wc.hbrBackground,COLOR_WINDOW+1
-    mov wc.lpszMenuName,NULL
-    mov wc.lpszClassName,OFFSET ClassName
+    mov wc.cbSize, SIZEOF WNDCLASSEX
+    mov wc.style, CS_HREDRAW or CS_VREDRAW
+    mov wc.lpfnWndProc, OFFSET WndProc
+    mov wc.cbClsExtra, 0
+    mov wc.cbWndExtra, 0
+    mov wc.hInstance, hInst
+    mov wc.hbrBackground, COLOR_WINDOW+1
+    mov wc.lpszMenuName, NULL
+    mov wc.lpszClassName, OFFSET ClassName
 
-    invoke LoadCursor,NULL,IDC_ARROW
-    mov wc.hCursor,eax
-    invoke LoadIcon,NULL,IDI_APPLICATION
-    mov wc.hIcon,eax
-    mov wc.hIconSm,eax
+    invoke LoadCursor, NULL, IDC_ARROW
+    mov wc.hCursor, eax
+    invoke LoadIcon, NULL, IDI_APPLICATION
+    mov wc.hIcon, eax
+    mov wc.hIconSm, eax
 
-    invoke RegisterClassEx,ADDR wc
+    invoke RegisterClassEx, ADDR wc
 
-    invoke CreateWindowEx,0,ADDR ClassName,ADDR AppName,\
-        WS_OVERLAPPEDWINDOW,100,100,800,600,\
-        NULL,NULL,hInst,NULL
-    mov hWnd,eax
+    invoke CreateWindowEx, 0, ADDR ClassName, ADDR AppName,\
+        WS_OVERLAPPEDWINDOW, 200, 150, 800, 600,\
+        NULL, NULL, hInst, NULL
 
-    invoke ShowWindow,hWnd,Show
-    invoke UpdateWindow,hWnd
+    mov hWndMain, eax
 
-    .while TRUE
-        invoke GetMessage,ADDR msg,NULL,0,0
-        .break .if eax==0
-        invoke TranslateMessage,ADDR msg
-        invoke DispatchMessage,ADDR msg
-    .endw
+    invoke ShowWindow, hWndMain, Show
+    invoke UpdateWindow, hWndMain
 
-    mov eax,msg.wParam
+msg_loop:
+    invoke GetMessage, ADDR msg, NULL, 0, 0
+    cmp eax, 0
+    je end_loop
+    invoke TranslateMessage, ADDR msg
+    invoke DispatchMessage, ADDR msg
+    jmp msg_loop
+
+end_loop:
+    mov eax, msg.wParam
     ret
 WinMain endp
 
-DrawSun proc hdc:DWORD, x:DWORD, y:DWORD
+; =======================
+DrawSun proc hdc:DWORD
     invoke CreateSolidBrush, 0000FFFFh
-    invoke SelectObject, hdc, eax
     push eax
+    invoke SelectObject, hdc, eax
 
-    mov eax, x
+    mov eax, sunX
     sub eax, 30
-    mov ebx, y
-    sub ebx, 30
-    mov ecx, x
+    mov ebx, 60
+    mov ecx, sunX
     add ecx, 30
-    mov edx, y
-    add edx, 30
+    mov edx, 120
     invoke Ellipse, hdc, eax, ebx, ecx, edx
 
     pop eax
-    invoke SelectObject, hdc, eax
     invoke DeleteObject, eax
     ret
 DrawSun endp
 
-DrawSnowman proc hdc:DWORD, stage:DWORD
-    mov eax, 100
-    sub eax, stage
-    mov ebx, eax
-
+; =======================
+DrawSnowman proc hdc:DWORD
     invoke CreateSolidBrush, 00FFFFFFh
-    invoke SelectObject, hdc, eax
     push eax
+    invoke SelectObject, hdc, eax
 
-    invoke Ellipse, hdc, 350, 300, 450, 400
-    invoke Ellipse, hdc, 370, 250, 430, 310
+    mov eax, melt
+    mov ebx, 300
+    add ebx, eax
+
+    invoke Ellipse, hdc, 360, ebx, 440, ebx+80
+    invoke Ellipse, hdc, 375, ebx-70, 425, ebx
 
     pop eax
-    invoke SelectObject, hdc, eax
     invoke DeleteObject, eax
     ret
 DrawSnowman endp
 
+; =======================
 WndProc proc hWnd:DWORD, uMsg:DWORD, wParam:DWORD, lParam:DWORD
     LOCAL hdc:DWORD
 
-    .if uMsg==WM_CREATE
-        invoke CreateFont,24,0,0,0,FW_BOLD,0,0,0,\
-            DEFAULT_CHARSET,0,0,0,0,ADDR Font1Name
-        mov hFont1,eax
-        invoke SetTimer,hWnd,ID_TIMER,100,NULL
+    .if uMsg == WM_CREATE
+        invoke CreateFont, 24,0,0,0,FW_BOLD,0,0,0,\
+            DEFAULT_CHARSET,0,0,0,0, CSTR("Arial")
+        mov hFont, eax
+        invoke SetTimer, hWnd, IDT_TIMER, 100, NULL
 
-    .elseif uMsg==WM_TIMER
-        add sunX,10
-        .if sunX>300
-            mov sunVisible,1
-            .if meltStage<50
-                inc meltStage
+    .elseif uMsg == WM_TIMER
+        add sunX, 8
+        .if sunX > 250
+            mov sunShow, 1
+            .if melt < 60
+                add melt, 2
             .endif
         .endif
-        invoke InvalidateRect,hWnd,NULL,TRUE
+        invoke InvalidateRect, hWnd, NULL, TRUE
 
-    .elseif uMsg==WM_PAINT
-        invoke BeginPaint,hWnd,ADDR ps
-        mov hdc,eax
+    .elseif uMsg == WM_PAINT
+        invoke BeginPaint, hWnd, ADDR ps
+        mov hdc, eax
 
-        invoke SelectObject,hdc,hFont1
-        invoke TextOut,hdc,20,20,ADDR Text1,LENGTHOF Text1-1
+        invoke SelectObject, hdc, hFont
+        invoke TextOut, hdc, 20, 20, ADDR Text1, LENGTHOF Text1-1
 
-        .if sunVisible==1
-            invoke DrawSun,hdc,sunX,80
+        .if sunShow == 1
+            invoke DrawSun, hdc
         .endif
 
-        invoke DrawSnowman,hdc,meltStage
+        invoke DrawSnowman, hdc
 
-        invoke EndPaint,hWnd,ADDR ps
+        invoke EndPaint, hWnd, ADDR ps
 
-    .elseif uMsg==WM_DESTROY
-        invoke KillTimer,hWnd,ID_TIMER
-        invoke DeleteObject,hFont1
-        invoke PostQuitMessage,0
+    .elseif uMsg == WM_DESTROY
+        invoke KillTimer, hWnd, IDT_TIMER
+        invoke DeleteObject, hFont
+        invoke PostQuitMessage, 0
 
     .else
-        invoke DefWindowProc,hWnd,uMsg,wParam,lParam
+        invoke DefWindowProc, hWnd, uMsg, wParam, lParam
         ret
     .endif
 
-    xor eax,eax
+    xor eax, eax
     ret
 WndProc endp
 
