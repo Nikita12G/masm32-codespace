@@ -1,40 +1,35 @@
-; =======================
-;  MASM32
-;  Тающий снеговик + солнце
-; =======================
-
 .386
 .model flat, stdcall
 option casemap:none
 
 include \masm32\include\windows.inc
-include \masm32\include\kernel32.inc
 include \masm32\include\user32.inc
+include \masm32\include\kernel32.inc
 include \masm32\include\gdi32.inc
 
-includelib \masm32\lib\kernel32.lib
 includelib \masm32\lib\user32.lib
+includelib \masm32\lib\kernel32.lib
 includelib \masm32\lib\gdi32.lib
 
 WinMain PROTO :DWORD,:DWORD,:DWORD,:DWORD
 
-IDT_TIMER equ 1
+ID_TIMER equ 1
 
 .data
-ClassName db "SnowmanClass",0
-AppName   db "Тающий снеговик",0
-Text1     db "Taющий снеговик",0
+ClassName db "SnowAnimClass",0
+AppName   db "Taющий снеговик (GDI)",0
 
-hInstance dd 0
-hWndMain  dd 0
+hInstance dd ?
+hWnd      dd ?
 
-sunX      dd 50
+sunX      dd 30
 sunShow   dd 0
-melt      dd 0
+radius    dd 80
 
 .data?
 ps PAINTSTRUCT <>
-hFont dd ?
+hWhiteBrush dd ?
+hYellowBrush dd ?
 
 .code
 
@@ -44,7 +39,7 @@ start:
     invoke WinMain, hInstance, NULL, NULL, SW_SHOWDEFAULT
     invoke ExitProcess, eax
 
-; =======================
+; -------------------------------------------------
 WinMain proc hInst:DWORD, hPrev:DWORD, Cmd:DWORD, Show:DWORD
     LOCAL wc:WNDCLASSEX
     LOCAL msg:MSG
@@ -71,77 +66,41 @@ WinMain proc hInst:DWORD, hPrev:DWORD, Cmd:DWORD, Show:DWORD
         WS_OVERLAPPEDWINDOW, 200, 150, 800, 600,\
         NULL, NULL, hInst, NULL
 
-    mov hWndMain, eax
+    mov hWnd, eax
 
-    invoke ShowWindow, hWndMain, Show
-    invoke UpdateWindow, hWndMain
+    invoke ShowWindow, hWnd, Show
+    invoke UpdateWindow, hWnd
 
 msg_loop:
     invoke GetMessage, ADDR msg, NULL, 0, 0
     cmp eax, 0
-    je end_loop
+    je exit_loop
     invoke TranslateMessage, ADDR msg
     invoke DispatchMessage, ADDR msg
     jmp msg_loop
 
-end_loop:
+exit_loop:
     mov eax, msg.wParam
     ret
 WinMain endp
 
-; =======================
-DrawSun proc hdc:DWORD
-    invoke CreateSolidBrush, 0000FFFFh
-    push eax
-    invoke SelectObject, hdc, eax
-
-    mov eax, sunX
-    sub eax, 30
-    mov ebx, 60
-    mov ecx, sunX
-    add ecx, 30
-    mov edx, 120
-    invoke Ellipse, hdc, eax, ebx, ecx, edx
-
-    pop eax
-    invoke DeleteObject, eax
-    ret
-DrawSun endp
-
-; =======================
-DrawSnowman proc hdc:DWORD
-    invoke CreateSolidBrush, 00FFFFFFh
-    push eax
-    invoke SelectObject, hdc, eax
-
-    mov eax, melt
-    mov ebx, 300
-    add ebx, eax
-
-    invoke Ellipse, hdc, 360, ebx, 440, ebx+80
-    invoke Ellipse, hdc, 375, ebx-70, 425, ebx
-
-    pop eax
-    invoke DeleteObject, eax
-    ret
-DrawSnowman endp
-
-; =======================
+; -------------------------------------------------
 WndProc proc hWnd:DWORD, uMsg:DWORD, wParam:DWORD, lParam:DWORD
-    LOCAL hdc:DWORD
+    LOCAL hdc:HDC
 
     .if uMsg == WM_CREATE
-        invoke CreateFont, 24,0,0,0,FW_BOLD,0,0,0,\
-            DEFAULT_CHARSET,0,0,0,0, CSTR("Arial")
-        mov hFont, eax
-        invoke SetTimer, hWnd, IDT_TIMER, 100, NULL
+        invoke CreateSolidBrush, 00FFFFFFh
+        mov hWhiteBrush, eax
+        invoke CreateSolidBrush, 0000FFFFh
+        mov hYellowBrush, eax
+        invoke SetTimer, hWnd, ID_TIMER, 80, NULL
 
     .elseif uMsg == WM_TIMER
-        add sunX, 8
-        .if sunX > 250
+        add sunX, 6
+        .if sunX > 200
             mov sunShow, 1
-            .if melt < 60
-                add melt, 2
+            .if radius > 10
+                sub radius, 2
             .endif
         .endif
         invoke InvalidateRect, hWnd, NULL, TRUE
@@ -150,20 +109,38 @@ WndProc proc hWnd:DWORD, uMsg:DWORD, wParam:DWORD, lParam:DWORD
         invoke BeginPaint, hWnd, ADDR ps
         mov hdc, eax
 
-        invoke SelectObject, hdc, hFont
-        invoke TextOut, hdc, 20, 20, ADDR Text1, LENGTHOF Text1-1
-
+        ; ---- Sun ----
         .if sunShow == 1
-            invoke DrawSun, hdc
+            invoke SelectObject, hdc, hYellowBrush
+            invoke Ellipse, hdc, sunX, 40, sunX+60, 100
         .endif
 
-        invoke DrawSnowman, hdc
+        ; ---- Snowman ----
+        invoke SelectObject, hdc, hWhiteBrush
+
+        mov eax, radius
+        mov ebx, 400
+        sub ebx, eax
+        mov ecx, 400
+        add ecx, eax
+        mov edx, 500
+        add edx, eax
+        invoke Ellipse, hdc, ebx, 420, ecx, edx
+
+        mov eax, radius
+        sub eax, 20
+        mov ebx, 400
+        sub ebx, eax
+        mov ecx, 400
+        add ecx, eax
+        invoke Ellipse, hdc, ebx, 360, ecx, 420
 
         invoke EndPaint, hWnd, ADDR ps
 
     .elseif uMsg == WM_DESTROY
-        invoke KillTimer, hWnd, IDT_TIMER
-        invoke DeleteObject, hFont
+        invoke KillTimer, hWnd, ID_TIMER
+        invoke DeleteObject, hWhiteBrush
+        invoke DeleteObject, hYellowBrush
         invoke PostQuitMessage, 0
 
     .else
